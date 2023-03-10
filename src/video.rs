@@ -4,13 +4,11 @@ use image::ColorType;
 use indicatif::{HumanDuration, ProgressBar, ProgressDrawTarget, ProgressState, ProgressStyle};
 use num_traits::FromPrimitive;
 use ssimulacra2::{
-    compute_frame_ssimulacra2, ColorPrimaries, MatrixCoefficients, Pixel, TransferCharacteristic,
-    Yuv, YuvConfig,
+    ColorPrimaries, MatrixCoefficients, Pixel, TransferCharacteristic, Yuv, YuvConfig,
 };
 use statrs::statistics::{Data, Distribution, Median, OrderStatistics};
 use std::collections::BTreeMap;
 use std::io::stderr;
-use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 use std::{
     path::{Path, PathBuf},
@@ -75,35 +73,6 @@ fn pretty_progress_style() -> ProgressStyle {
             },
         )
         .progress_chars(PROGRESS_CHARS)
-}
-
-fn calc_score<S: Pixel, D: Pixel>(
-    mtx: &Mutex<(usize, (VapoursynthDecoder, VapoursynthDecoder))>,
-    src_yuvcfg: &YuvConfig,
-    dst_yuvcfg: &YuvConfig,
-) -> Option<(usize, f64)> {
-    let (frame_idx, (src_frame, dst_frame)) = {
-        let mut guard = mtx.lock().unwrap();
-        let curr_frame = guard.0;
-
-        let src_frame = guard.1 .0.read_video_frame::<S>();
-        let dst_frame = guard.1 .1.read_video_frame::<D>();
-
-        if let (Some(sf), Some(df)) = (src_frame, dst_frame) {
-            guard.0 += 1;
-            (curr_frame, (sf, df))
-        } else {
-            return None;
-        }
-    };
-
-    let src_yuv = Yuv::new(src_frame, *src_yuvcfg).unwrap();
-    let dst_yuv = Yuv::new(dst_frame, *dst_yuvcfg).unwrap();
-
-    Some((
-        frame_idx,
-        compute_frame_ssimulacra2(src_yuv, dst_yuv).expect("Failed to calculate ssimulacra2"),
-    ))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -196,37 +165,16 @@ pub fn compare_videos(
         color_primaries: dst_primaries,
     };
 
-    let (result_tx, result_rx) = mpsc::channel();
     let src_bd = src_config.bit_depth;
     let dst_bd = dst_config.bit_depth;
+    let start_threads = match (src_bd, dst_bd) {
+        (8, 8) => start_worker_threads::<u8, u8>,
+        (8, _) => start_worker_threads::<u8, u16>,
+        (_, 8) => start_worker_threads::<u16, u8>,
+        (_, _) => start_worker_threads::<u16, u16>,
+    };
 
-    let current_frame = 0usize;
-    let decoders = Arc::new(Mutex::new((current_frame, (source, distorted))));
-    for _ in 0..frame_threads {
-        let decoders = Arc::clone(&decoders);
-        let result_tx = result_tx.clone();
-
-        std::thread::spawn(move || {
-            loop {
-                let score = match (src_bd, dst_bd) {
-                    (8, 8) => calc_score::<u8, u8>(&decoders, &src_config, &dst_config),
-                    (8, _) => calc_score::<u8, u16>(&decoders, &src_config, &dst_config),
-                    (_, 8) => calc_score::<u16, u8>(&decoders, &src_config, &dst_config),
-                    (_, _) => calc_score::<u16, u16>(&decoders, &src_config, &dst_config),
-                };
-
-                if let Some(result) = score {
-                    result_tx.send(result).unwrap();
-                } else {
-                    // no score = no more frames to read
-                    break;
-                }
-            }
-        });
-    }
-
-    // Needs to be dropped or the main thread never stops waiting for scores
-    drop(result_tx);
+    let result_rx = start_threads(source, distorted, src_config, dst_config, frame_threads);
 
     let progress = if stderr().is_tty() && !verbose {
         let pb = ProgressBar::new(source_frame_count as u64).with_style(pretty_progress_style());
@@ -242,12 +190,12 @@ pub fn compare_videos(
     };
 
     let mut results = BTreeMap::new();
-    for score in result_rx {
+    for (frame, score) in result_rx {
         if verbose {
-            println!("Frame {}: {:.8}", score.0, score.1);
+            println!("Frame {frame}: {score:.8}");
         }
 
-        results.insert(score.0, score.1);
+        results.insert(frame, score);
         progress.inc(1);
     }
 
@@ -317,6 +265,50 @@ pub fn compare_videos(
         println!();
         println!("Graph written to {}", out_path.to_string_lossy());
     }
+}
+
+fn start_worker_threads<S: Pixel, D: Pixel>(
+    mut src_dec: VapoursynthDecoder,
+    mut dst_dec: VapoursynthDecoder,
+    src_config: YuvConfig,
+    dst_config: YuvConfig,
+    frame_threads: usize,
+) -> crossbeam_channel::Receiver<(i32, f64)> {
+    let (frame_tx, frame_rx) = crossbeam_channel::bounded(frame_threads);
+    let (result_tx, result_rx) = crossbeam_channel::unbounded();
+
+    for _ in 0..frame_threads {
+        let frame_rx = frame_rx.clone();
+        let result_tx = result_tx.clone();
+
+        std::thread::spawn(move || {
+            while let Ok((frame_idx, (src, dst))) = frame_rx.recv() {
+                let score = ssimulacra2::compute_frame_ssimulacra2(src, dst)
+                    .expect("Can calculate SSIMULACRA2 score");
+
+                result_tx.send((frame_idx, score)).unwrap();
+            }
+        });
+    }
+
+    // start thread for decoding
+    // this allows running UI updates on the main thread
+    std::thread::spawn(move || {
+        let mut curr_frame = 0;
+        while let Some(src_frame) = src_dec.read_video_frame::<S>() {
+            let dst_frame = dst_dec
+                .read_video_frame::<D>()
+                .expect("distorted video has at least as many frames as source");
+            
+            let src_yuv = Yuv::new(src_frame, src_config).unwrap();
+            let dst_yuv = Yuv::new(dst_frame, dst_config).unwrap();
+            
+            frame_tx.send((curr_frame, (src_yuv, dst_yuv))).unwrap();
+            curr_frame += 1;
+        }
+    });
+
+    result_rx
 }
 
 pub fn parse_matrix(input: &str) -> MatrixCoefficients {

@@ -1295,6 +1295,7 @@ dependencies = [
  "anyhow",
  "av-metrics-decoders",
  "clap",
+ "crossbeam-channel",
  "crossterm",
  "image",
  "indicatif",
