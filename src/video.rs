@@ -282,7 +282,7 @@ fn start_worker_threads<S: Pixel, D: Pixel>(
         let result_tx = result_tx.clone();
 
         std::thread::spawn(move || {
-            while let Ok((frame_idx, (src, dst))) = frame_rx.recv() {
+            for (frame_idx, (src, dst)) in frame_rx {
                 let score = ssimulacra2::compute_frame_ssimulacra2(src, dst)
                     .expect("Can calculate SSIMULACRA2 score");
 
