@@ -1227,13 +1227,12 @@ dependencies = [
 [[package]]
 name = "ssimulacra2"
 version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f06a69284fda5ad330ccbae2dca49e88ba4816d0edcc8a4c3b549095d7116fa2"
+source = "git+https://github.com/FreezyLemon/ssimulacra2?branch=experiment-use-yuvxyb-math#4b80a98ec6ec3fb84ce67fa1cbaf2a2ed9c82b29"
 dependencies = [
- "nalgebra",
  "num-traits",
  "thiserror",
  "yuvxyb",
+ "yuvxyb-math",
 ]
 
 [[package]]
@@ -1655,17 +1654,21 @@ dependencies = [
 [[package]]
 name = "yuvxyb"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "838b59f140accc874683473ab67aae5a5896465287652e929521c180896af0e4"
+source = "git+https://github.com/FreezyLemon/yuvxyb?branch=expand-math-api#9e39bb2bec8d0842f30d0a826a4c698433699cb8"
 dependencies = [
  "av-data",
  "log",
- "nalgebra",
  "num-traits",
  "paste",
  "thiserror",
  "v_frame",
+ "yuvxyb-math",
 ]
+
+[[package]]
+name = "yuvxyb-math"
+version = "0.1.0"
+source = "git+https://github.com/FreezyLemon/yuvxyb?branch=expand-math-api#9e39bb2bec8d0842f30d0a826a4c698433699cb8"
 
 [[package]]
 name = "zerocopy"
