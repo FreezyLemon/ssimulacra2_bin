@@ -16,7 +16,7 @@ clap = { version = "4.0.18", features = ["derive"] }
 crossterm = "0.28"
 indicatif = "0.17.1"
 num-traits = { version = "0.2.15", optional = true }
-ssimulacra2 = { version = "0.5.0", default-features = false }
+ssimulacra2 = { git = "https://github.com/rust-av/ssimulacra2", default-features = false }
 
 [dependencies.av-metrics-decoders]
 version = "0.3.1"
