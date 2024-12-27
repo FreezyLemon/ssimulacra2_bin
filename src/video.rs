@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::io::stderr;
+use std::io::{stderr, IsTerminal};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 use std::{
@@ -8,7 +8,6 @@ use std::{
 };
 
 use av_metrics_decoders::{y4m::new_decoder_from_stdin, Decoder, VapoursynthDecoder};
-use crossterm::tty::IsTty;
 use image::ColorType;
 use indicatif::{HumanDuration, ProgressBar, ProgressDrawTarget, ProgressState, ProgressStyle};
 use num_traits::FromPrimitive;
@@ -458,7 +457,7 @@ fn compare_videos_inner<D: Decoder + 'static, E: Decoder + 'static>(
     // Needs to be dropped or the main thread never stops waiting for scores
     drop(result_tx);
 
-    let progress = if stderr().is_tty() && !verbose {
+    let progress = if stderr().is_terminal() && !verbose {
         let frame_count = source_frame_count.or(distorted_frame_count);
         let pb = if let Some(frame_count) = frame_count {
             let fc = frames_to_compare.unwrap_or(frame_count - skip_frames)

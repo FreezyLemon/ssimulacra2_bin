@@ -17,7 +17,6 @@ av-metrics-decoders = { version = "0.3.1", features = [
     "y4m",
 ], optional = true }
 clap = { version = "4.0.18", features = ["derive"] }
-crossterm = "0.27.0"
 indicatif = "0.17.1"
 num-traits = { version = "0.2.15", optional = true }
 ssimulacra2 = { version = "0.5.0", default-features = false }
